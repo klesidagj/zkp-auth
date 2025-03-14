@@ -1,17 +1,96 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <title>Login</title>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const form = document.querySelector("form");
+            form.addEventListener("submit", startAuth);  // Attach event listener properly
+        });
+        const p = 23n;
+        const q = 22n;
+        const g = 2n;
+
+        async function sha256Int(message) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(message);
+            const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return BigInt("0x" + hashHex);  // Convert hash to BigInt
+        }
+
+        async function startAuth(event) {
+            event.preventDefault();
+
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+
+            if (!username || !password) {
+                alert("Please enter username and password.");
+                return;
+            }
+              //GENERATE COMMITMENT
+            const v = BigInt(Math.floor(Math.random() * Number(q - 1n) + 1));
+            const t = modPow(g, v, p);           //commitment t = g^v mod p.
+
+            const startResponse = await fetch("http://localhost:5000/auth/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ username, commitment_t: t.toString(16) })
+            });
+
+            if (!startResponse.ok) {
+                alert("User not found or an error occurred.");
+                return;
+            }
+
+            const startData = await startResponse.json();
+            const challenge_c = BigInt(parseInt(startData.challenge_c, 16));
+             //SEND PROOF
+            // The client computes r using their password-derived x.
+            const x = await sha256Int(password) % q;
+            const r = (v - challenge_c * x) % q;
+
+            const verifyResponse = await fetch("http://localhost:5000/auth/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                    username,
+                    r: r.toString(16),
+                    c: challenge_c.toString(16)
+                })
+            });
+
+            const verifyData = await verifyResponse.json();
+            if (verifyResponse.ok) {
+                alert("Login successful!");
+            } else {
+                alert("Authentication failed: " + verifyData.error);
+            }
+        }
+
+        function modPow(base, exponent, mod) {
+            let result = 1n;
+            base = base % mod;
+            while (exponent > 0n) {
+                if (exponent % 2n === 1n) {
+                    result = (result * base) % mod;
+                }
+                base = (base * base) % mod;
+                exponent = exponent / 2n;
+            }
+            return result;
+        }
+    </script>
 </head>
 <body>
     <h2>User Login</h2>
-    <form action="http://localhost:5000/login" method="POST">
+    <form>
         <label>Username:</label>
-        <input type="text" name="username" required><br><br>
-        <label>Challenge (c):</label>
-        <input type="text" name="challenge_c" required><br><br>
-        <label>Response (s):</label>
-        <input type="text" name="proof_s" required><br><br>
+        <label for="username"></label><input type="text" id="username" required><br><br>
+        <label>Password:</label>
+        <label for="password"></label><input type="password" id="password" required><br><br>
         <input type="submit" value="Login">
     </form>
 </body>

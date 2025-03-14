@@ -4,10 +4,11 @@ from psycopg2.extras import RealDictCursor
 # Database connection
 def get_db_connection():
     return psycopg2.connect(
-        dbname="zkp",
-        user="postgres",
-        password="123",
+        dbname="postgres",
+        user="klesi",
+        password="",
         host="localhost",
+        port=5432,
         cursor_factory=RealDictCursor
     )
 

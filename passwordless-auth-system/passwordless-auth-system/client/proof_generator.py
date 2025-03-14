@@ -1,21 +1,17 @@
 import hashlib
 import random
-from constants import p, g, q
+from constants import p,q,g
 
+def generate_commitment():
+    """Client generates commitment t = g^v mod p and sends it to the server."""
+    v = random.randint(1, q)  # Random nonce
+    t = pow(g, v, p)
+    return v, t  # Return the random v for later proof generation
 
-# Derive x from password and generate proof
-def generate_proof(password, y):
-    # Derive x from password
+def generate_proof(v, c, password):
+    """Generate Fiat-Shamir proof r using v, challenge c, and secret x derived from password."""
     x = int.from_bytes(hashlib.sha256(password.encode()).digest(), 'big') % q
+    r = (v - c * x) % q  # Compute response
+    return r
 
-    # Generate random r and compute commitment t
-    r = random.randint(1, q)
-    t = pow(g, r, p)  # t = g^r mod p
 
-    hash_input = f"{g}{t}{y}".encode() #we add  c here and instead of t we send the c 
-    c = int(hashlib.sha256(hash_input).hexdigest(), 16) % q
-
-    # Compute response s = r - c * x mod (p-1)
-    s = (r - c * x) % q
-
-    return c, s

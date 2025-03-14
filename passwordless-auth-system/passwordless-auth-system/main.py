@@ -1,13 +1,17 @@
 import hashlib
-import os
+
 from flask import Flask, request, jsonify, send_from_directory
-from server.db import store_user, get_public_key
-from constants import g, p
-from client.proof_generator import generate_proof
+from server.db import  get_public_key
+from constants import g, q
+from flask_cors import CORS
 from client.cli import user_registration
 from server.verifier import verify_proof
+import logging
 
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 app = Flask(__name__)
+CORS(app)  # Allow all origins by default
+challenges = {}
 
 # Serve the Register Page
 @app.route('/register', methods=['GET'])
@@ -26,46 +30,50 @@ def register():
     password = request.form['password']
     
     y=user_registration(username,password)
-    store_user(username, y)
+    return jsonify({"message": "User registered successfully!", "public_key": hex(y)})
 
-    # Generate proof for user to copy
-    c, s = generate_proof(password, y)
-    return jsonify({
-        "message": "Registration successful.",
-        "challenge_c": hex(c),
-        "proof_s": hex(s)
-    })
-
-# Endpoint to handle user login
-@app.route('/login', methods=['POST'])
-def login():
+@app.route('/auth/start', methods=['POST'])
+def start_auth():
     username = request.form['username']
-    challenge_c_raw = request.form['challenge_c']
-    proof_s_raw = request.form['proof_s']
+    commitment_t = int(request.form['commitment_t'], 16)  # Convert from hex
 
-    print(f"Debug: Received username = {username}, challenge_c = {challenge_c_raw}, proof_s = {proof_s_raw}")
-    
-    try:
-        # Sanitize and convert challenge_c and proof_s to integers
-        challenge_c_raw = request.form['challenge_c']
-        proof_s_raw = request.form['proof_s']
-
-        challenge_c = int(challenge_c_raw.replace('0x', '', 1), 16)  # Hex to int
-        proof_s = int(proof_s_raw.replace('0x', '', 1), 16)
-
-    except ValueError:
-        return jsonify({"error": "Invalid proof format"}), 400
-
-    # Fetch public key for the username
-    y = get_public_key(username)
+    y = get_public_key(username)  # Retrieve public key y
     if not y:
+        logging.warning(f"User {username} not found.")
         return jsonify({"error": "User not found"}), 404
 
-    # Convert y to integer
-    y = int(y)
+    # Compute challenge `c` based on `t` received from client
+    # `c = H(g, y, t) mod q`
+    c = int(hashlib.sha256(f"{g}{y}{commitment_t}".encode()).hexdigest(), 16) % q
+    logging.debug(f"Challenge generated: c={c} for user {username}")
 
-    # Verify proof
-    if verify_proof(challenge_c, proof_s, y):
+    # Store the challenge and commitment temporarily
+    challenges[username] = (c, commitment_t)
+
+    return jsonify({"challenge_c": hex(c)})
+
+
+@app.route('/auth/verify', methods=['POST'])
+def verify_auth():
+    username = request.form['username']
+    r_hex = request.form['r']
+    c_hex = request.form['c']
+
+    if username not in challenges:
+        logging.warning(f"User {username} attempted login with no challenge stored.")
+        return jsonify({"error": "No pending authentication request"}), 400
+
+    c, commitment_t = challenges.pop(username)  # Retrieve stored challenge and commitment
+    r = int(r_hex, 16)  # Convert from hex
+    c = int(c_hex, 16)  # Convert from hex
+
+    y = get_public_key(username)
+    if not y:
+        logging.warning(f"User {username} not found during verification.")
+        return jsonify({"error": "User not found"}), 404
+    logging.debug(f"Verifying proof for user {username}: r={r}, c={c}, y={y}, t={commitment_t}")
+    # Verify proof using the correct stored commitment `t`
+    if verify_proof(r, c, y, commitment_t):
         return jsonify({"message": "Login successful!"})
     else:
         return jsonify({"error": "Invalid proof!"}), 401

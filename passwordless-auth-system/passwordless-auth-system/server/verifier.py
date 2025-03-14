@@ -1,22 +1,22 @@
 import hashlib
 from constants import p, g, q
+import logging
 
-# Verify proof (c, s) for given username
-def verify_proof(c, s, y):
-    # Ensure all inputs are integers
-    c = int(c)
-    s = int(s)
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def verify_proof(r, c, y, t):
+    """Verifies the proof by checking t' = g^r * y^c mod p"""
+    logging.debug(f"Verifying proof: r={r}, c={c}, y={y}, t={t}")
     y = int(y)
 
-    # Recompute t using g^s * y^c mod p
-    lhs = (pow(g, s, p) * pow(y, c, p)) % p  # Recomputed commitment t
+    # Compute t' = g^r * y^c mod p
+    t_prime = (pow(g, r, p) * pow(y, c, p)) % p
+    logging.debug(f"Computed t' = {t_prime}")
 
-    # Recompute the challenge c = H(g || y || t)
-    hash_input = f"{g}{lhs}{y}".encode()
+    # Recompute c from the challenge hash using stored `t`
+    hash_input = f"{g}{y}{t_prime}".encode()
     computed_c = int(hashlib.sha256(hash_input).hexdigest(), 16) % q
+    logging.debug(f"Computed challenge = {computed_c}, Received challenge = {c}")
 
-    # Debugging output to inspect the values
-    print(f"lhs (recomputed t): {lhs}, computed_c: {computed_c}, received_c: {c}")
-
-    # Verify if the recomputed challenge matches the received challenge
-    return computed_c == c
+    return computed_c == c  # Authentication is successful only if challenges match
